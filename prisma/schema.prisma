@@ -1,0 +1,107 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  subscription  Subscription?
+  projects      Project[]
+  usage         Usage[]
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String   @unique
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+  tier                 Tier     @default(FREE)
+  status               String   @default("active")
+  pagesUsedThisMonth   Int      @default(0)
+  pagesLimit           Int      @default(100)
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+enum Tier {
+  FREE      // 100 pages/month
+  STARTER   // 1,000 pages/month - £29
+  GROWTH    // 10,000 pages/month - £99
+  AGENCY    // 100,000 pages/month - £299
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  businessName String
+  prompt       String   @db.Text
+  strategy     Json
+  status       Status   @default(GENERATING)
+  pagesCount   Int      @default(0)
+  deployedUrl  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  pages        Page[]
+}
+
+enum Status {
+  GENERATING
+  READY
+  DEPLOYED
+  FAILED
+}
+
+model Page {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  slug        String
+  city        String
+  region      String
+  country     String
+  content     Json
+  metaTitle   String
+  metaDesc    String
+  indexed     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([projectId, slug])
+}
+
+model Usage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String   // "generate", "download", "deploy"
+  pages     Int      @default(0)
+  projectId String?
+  createdAt DateTime @default(now())
+}
+
+model Waitlist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  business  String?
+  source    String?  // "product_hunt", "reddit", "direct"
+  createdAt DateTime @default(now())
+}
