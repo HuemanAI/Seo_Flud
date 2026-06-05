@@ -1,10 +1,25 @@
 // src/lib/engine.ts
-// THE CORE ENGINE — this is what makes SEOflud valuable
-// Strategy → Locations → Unique Content → Deployable Project
+// THE CORE ENGINE — Strategy → Locations → Unique Content → Deployable Project
+// Powered by Google Gemini (free tier: 1,500 requests/day)
 
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+
+// Shared helper — calls Gemini and always returns clean JSON
+async function callGemini(systemPrompt: string, userPrompt: string, maxTokens = 2000): Promise<string> {
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash', // Fast, free tier, great for structured output
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      responseMimeType: 'application/json', // Forces valid JSON output — no markdown wrapping
+      maxOutputTokens: maxTokens,
+      temperature: 0.7,
+    },
+  })
+  const result = await model.generateContent(userPrompt)
+  return result.response.text()
+}
 
 // ── TYPES ────────────────────────────────────────────────────────────
 export interface Strategy {
@@ -57,15 +72,11 @@ export interface PageContent {
 
 // ── STEP 1: GENERATE STRATEGY ────────────────────────────────────────
 export async function generateStrategy(prompt: string): Promise<Strategy> {
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001', // Fast + cheap for strategy
-    max_tokens: 2000,
-    system: `You are an expert programmatic SEO strategist. 
+  const text = await callGemini(
+    `You are an expert programmatic SEO strategist.
 Analyse a business description and create a complete SEO strategy.
-Return ONLY valid JSON. No markdown, no explanation.`,
-    messages: [{
-      role: 'user',
-      content: `Analyse this business for programmatic SEO: "${prompt}"
+Return ONLY valid JSON matching the exact structure requested. No explanation.`,
+    `Analyse this business for programmatic SEO: "${prompt}"
 
 Return this exact JSON structure:
 {
@@ -117,12 +128,11 @@ Return this exact JSON structure:
   "searchVolume": 180000,
   "competitionLevel": "Medium",
   "timeToRank": "8-12 weeks"
-}`
-    }]
-  })
+}`,
+    2000
+  )
 
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  return JSON.parse(text.replace(/```json|```/g, '').trim())
+  return JSON.parse(text)
 }
 
 // ── STEP 2: GENERATE PAGE CONTENT ────────────────────────────────────
@@ -135,18 +145,14 @@ export async function generatePageContent(
     ? `${location.city}, ${location.parent}`
     : location.city
 
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1200,
-    system: `You write concise, factual, SEO-optimised B2B landing page content.
+  const text = await callGemini(
+    `You write concise, factual, SEO-optimised B2B landing page content.
 Sound like a knowledgeable local business advisor. Never use buzzwords or hype.
-Return ONLY valid JSON. No markdown, no explanation.`,
-    messages: [{
-      role: 'user',
-      content: `Write unique landing page content for: "${originalPrompt}"
+Return ONLY valid JSON matching the exact structure requested.`,
+    `Write unique landing page content for: "${originalPrompt}"
 
 Business: ${strategy.businessName}
-Primary keyword: ${strategy.primaryKeyword}  
+Primary keyword: ${strategy.primaryKeyword}
 Location: ${locationLabel}, ${location.region}
 Industries: ${location.topIndustries.join(', ')}
 Population: ${location.population.toLocaleString()}
@@ -160,7 +166,7 @@ Return JSON:
   "h1": "keyword for city businesses",
   "heroSubheadline": "2 sentences, specific to this city's market",
   "introParagraph": "3 sentences, specific local market context, NO generic fluff",
-  "localInsight": "1-2 sentences about hiring/business challenges unique to this city",
+  "localInsight": "1-2 sentences about business challenges unique to this city",
   "stats": [
     {"label": "stat name", "value": "number", "context": "short context"},
     {"label": "stat name", "value": "number", "context": "short context"},
@@ -177,14 +183,13 @@ Return JSON:
   "cta": "short CTA button text e.g. 'Start free in ${location.city}'",
   "testimonialQuote": "realistic 1-sentence quote from a ${location.city} customer",
   "testimonialAuthor": "${location.topIndustries[0]} business, ${location.region}"
-}`
-    }]
-  })
+}`,
+    1200
+  )
 
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  const content = JSON.parse(text.replace(/```json|```/g, '').trim())
+  const content = JSON.parse(text)
 
-  // Build structured data (this is what gets FAQ rich snippets in Google)
+  // Build structured data (gets FAQ rich snippets in Google)
   const structuredData = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -226,7 +231,7 @@ export async function generateBatchPages(
   onProgress?: (done: number, total: number) => void
 ): Promise<PageContent[]> {
   const results: PageContent[] = []
-  const BATCH_SIZE = 5 // parallel requests
+  const BATCH_SIZE = 5
 
   for (let i = 0; i < locations.length; i += BATCH_SIZE) {
     const batch = locations.slice(i, i + BATCH_SIZE)
@@ -236,9 +241,9 @@ export async function generateBatchPages(
     results.push(...batchResults)
     onProgress?.(Math.min(i + BATCH_SIZE, locations.length), locations.length)
 
-    // Rate limit pause between batches
+    // Respect Gemini free tier rate limits (15 RPM)
     if (i + BATCH_SIZE < locations.length) {
-      await new Promise(r => setTimeout(r, 300))
+      await new Promise(r => setTimeout(r, 400))
     }
   }
 
