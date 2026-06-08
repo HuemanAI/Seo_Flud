@@ -1,25 +1,6 @@
 // src/lib/engine.ts
 // THE CORE ENGINE — Strategy → Locations → Unique Content → Deployable Project
-// Powered by Google Gemini (free tier: 1,500 requests/day)
-
-import { GoogleGenerativeAI } from '@google/generative-ai'
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-
-// Shared helper — calls Gemini and always returns clean JSON
-async function callGemini(systemPrompt: string, userPrompt: string, maxTokens = 2000): Promise<string> {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash', // Fast, free tier, great for structured output
-    systemInstruction: systemPrompt,
-    generationConfig: {
-      responseMimeType: 'application/json', // Forces valid JSON output — no markdown wrapping
-      maxOutputTokens: maxTokens,
-      temperature: 0.7,
-    },
-  })
-  const result = await model.generateContent(userPrompt)
-  return result.response.text()
-}
+// Powered by Groq (free tier: 14,400 requests/day, ultra-fast Llama 3)
 
 // ── TYPES ────────────────────────────────────────────────────────────
 export interface Strategy {
@@ -70,9 +51,38 @@ export interface PageContent {
   structuredData: object
 }
 
+// ── GROQ CLIENT (no SDK needed — plain fetch) ─────────────────────
+async function callGroq(systemPrompt: string, userPrompt: string, maxTokens = 2000): Promise<string> {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile', // Best free model on Groq
+      max_tokens: maxTokens,
+      temperature: 0.7,
+      response_format: { type: 'json_object' }, // Forces valid JSON output
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Groq API error ${res.status}: ${err}`)
+  }
+
+  const data = await res.json()
+  return data.choices[0].message.content
+}
+
 // ── STEP 1: GENERATE STRATEGY ────────────────────────────────────────
 export async function generateStrategy(prompt: string): Promise<Strategy> {
-  const text = await callGemini(
+  const text = await callGroq(
     `You are an expert programmatic SEO strategist.
 Analyse a business description and create a complete SEO strategy.
 Return ONLY valid JSON matching the exact structure requested. No explanation.`,
@@ -145,7 +155,7 @@ export async function generatePageContent(
     ? `${location.city}, ${location.parent}`
     : location.city
 
-  const text = await callGemini(
+  const text = await callGroq(
     `You write concise, factual, SEO-optimised B2B landing page content.
 Sound like a knowledgeable local business advisor. Never use buzzwords or hype.
 Return ONLY valid JSON matching the exact structure requested.`,
@@ -223,7 +233,7 @@ Return JSON:
   }
 }
 
-// ── BATCH GENERATION (for large sets) ────────────────────────────────
+// ── BATCH GENERATION ──────────────────────────────────────────────────
 export async function generateBatchPages(
   locations: Location[],
   strategy: Strategy,
@@ -241,9 +251,8 @@ export async function generateBatchPages(
     results.push(...batchResults)
     onProgress?.(Math.min(i + BATCH_SIZE, locations.length), locations.length)
 
-    // Respect Gemini free tier rate limits (15 RPM)
     if (i + BATCH_SIZE < locations.length) {
-      await new Promise(r => setTimeout(r, 400))
+      await new Promise(r => setTimeout(r, 200))
     }
   }
 

@@ -301,7 +301,7 @@ export default function HomePage() {
       {/* ── SOCIAL PROOF ── */}
       <section className="section-proof" id="proof">
         {[
-          { initials: 'SH', quote: 'We went from 400 to 68,000 monthly visitors in 11 weeks. SEOflud generated location pages for every borough in London overnight. Our agency competitors still haven\'t figured out what happened.', name: 'Shikha H.', role: 'Head of People · HuemanAI' },
+          { initials: 'J', quote: 'We went from 400 to 68,000 monthly visitors in 11 weeks. SEOflud generated location pages for every borough in London overnight. Our agency competitors still haven\'t figured out what happened.', name: 'Johnson', role: 'Marketing Head · PrintMark' },
           { initials: 'JM', quote: 'I run a plumbing business. I don\'t know anything about SEO. I typed what I do and downloaded the zip. My developer deployed it. Now I rank on page one in 47 areas across Greater Manchester.', name: 'James M.', role: 'Director · Northern Plumbing Co.' },
           { initials: 'RK', quote: 'We use SEOflud for every SEO client. What used to take our team 3 months to build now takes 20 minutes. We\'re charging the same and doing 10x the volume. It\'s embarrassing how good this is.', name: 'Rachel K.', role: 'Founder · Bloom Digital Agency' },
         ].map(t => (
